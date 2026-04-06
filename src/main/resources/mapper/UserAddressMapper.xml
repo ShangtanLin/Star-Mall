@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.github.shangtanlin.mapper.UserAddressMapper">
+
+    <update id="update">
+        UPDATE user_address
+        <set>
+            <if test="userAddressUpdateDTO.receiverName != null
+            and userAddressUpdateDTO.receiverName != ''">
+            receiver_name = #{userAddressUpdateDTO.receiverName},</if>
+            <if test="userAddressUpdateDTO.receiverPhone != null
+            and userAddressUpdateDTO.receiverPhone != ''">
+            receiver_phone = #{userAddressUpdateDTO.receiverPhone},</if>
+            <if test="userAddressUpdateDTO.province != null
+            and userAddressUpdateDTO.province != ''">
+            province = #{userAddressUpdateDTO.province},</if>
+            <if test="userAddressUpdateDTO.city != null
+            and userAddressUpdateDTO.city != ''">
+            city = #{userAddressUpdateDTO.city},</if>
+            <if test="userAddressUpdateDTO.district != null
+             and userAddressUpdateDTO.district != ''">
+            district = #{userAddressUpdateDTO.district},</if>
+            <if test="userAddressUpdateDTO.detailAddress != null
+             and userAddressUpdateDTO.detailAddress != ''">
+            detail_address = #{userAddressUpdateDTO.detailAddress},</if>
+            <if test="userAddressUpdateDTO.isDefault != null">
+            is_default = #{userAddressUpdateDTO.isDefault},</if>
+        </set>
+        WHERE id = #{userAddressUpdateDTO.id} AND user_id = #{userId}
+    </update>
+
+
+
+</mapper>
