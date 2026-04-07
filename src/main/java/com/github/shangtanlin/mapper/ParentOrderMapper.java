@@ -29,13 +29,16 @@ public interface ParentOrderMapper extends BaseMapper<ParentOrder> {
      * 根据编号和用户Id修改订单状态
      * @param orderSn
      * @param userId
+     * @param oldStatus
      */
     @Update("update parent_order set status = #{status} " +
-            "where order_sn = #{orderSn} and user_id = #{userId}")
+            "where order_sn = #{orderSn} and user_id = #{userId} " +
+            "and status = #{oldStatus}")
     void setStatusBySnAndUserId(
             @Param("orderSn") String orderSn,
             @Param("userId") Long userId,
-            @Param("status") Integer status);
+            @Param("status") Integer status,
+            @Param("oldStatus") Integer oldStatus);
 
 
     /**
@@ -91,4 +94,33 @@ public interface ParentOrderMapper extends BaseMapper<ParentOrder> {
     @Select("select status from parent_order " +
             "where order_sn = #{parentOrderSn}")
     Integer selectStatus(@Param("parentOrderSn") String parentOrderSn);
+
+
+    /**
+     * 根据编号查询主订单（加行锁）
+     * @param parentOrderSn
+     * @return
+     */
+    @Select("select * from parent_order " +
+            "where order_sn = #{parentOrderSn} for update")
+    ParentOrder selectBySnForUpdate(
+            @Param("parentOrderSn") String parentOrderSn);
+
+
+    /**
+     * 更新支付相关字段
+     * @param parentOrderSn
+     * @param status
+     * @param paymentType
+     * @param paymentTime
+     */
+    @Update("update parent_order set status = #{status}," +
+            "payment_type = #{paymentType}," +
+            "payment_time = #{paymentTime} " +
+            "where order_sn = #{parentOrderSn}")
+    void updatePayInfo(
+            @Param("parentOrderSn") String parentOrderSn,
+            @Param("status") Integer status,
+            @Param("paymentType") Integer paymentType,
+            @Param("paymentTime") LocalDateTime paymentTime);
 }

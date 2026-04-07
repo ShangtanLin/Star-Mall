@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @Builder
@@ -31,6 +32,16 @@ public class OrderCreateVO {
 
 
     // 新增提示字段
-    private Boolean priceChanged;    // 标记金额是否发生变动
+    private Boolean priceChanged = false;    // 标记金额是否发生变动
     private String changeReason;     // 变动原因描述，如："由于活动结束，价格已更新，请重新核对"
+
+
+    // 是否可以分开支付
+    private Boolean allowSplitPayment; // 标记是否可以分开支付
+
+    // 该主订单下包含的子订单编号(子订单继续支付时才使用)
+    private List<String> subOrderSns;
+
+
+
 }

@@ -18,13 +18,16 @@ public interface SubOrderMapper extends BaseMapper<SubOrder> {
      * @param orderSn
      * @param userId
      * @param status
+     * @param oldStatus
      */
     @Update("update sub_order set status = #{status} " +
-            "where parent_order_sn = #{orderSn} and user_id = #{userId}")
+            "where parent_order_sn = #{orderSn} and user_id = #{userId} " +
+            "and status = #{oldStatus}")
     void setStatusByParentSn(
             @Param("orderSn") String orderSn,
             @Param("userId") Long userId,
-            @Param("status") Integer status);
+            @Param("status") Integer status,
+            @Param("oldStatus") Integer oldStatus);
 
 
     /**
@@ -88,6 +91,20 @@ public interface SubOrderMapper extends BaseMapper<SubOrder> {
     int selectUnSuccess(@Param("parentOrderSn") String parentOrderSn);
 
 
+
+    /**
+     * 查询未支付的订单数量
+     * @param parentOrderSn
+     * @return
+     */
+    @Select("select count(*) from sub_order where " +
+            "parent_order_sn = #{parentOrderSn} " +
+            "and status = 0 ")
+    int selectUnpaid(@Param("parentOrderSn") String parentOrderSn);
+
+
+
+
     /**
      * 根据主订单编号查询所有子订单ID
      * @param parentOrderSn
@@ -129,33 +146,62 @@ public interface SubOrderMapper extends BaseMapper<SubOrder> {
              @Param("status") Integer status);
 
 
-    ///**
-    // * 插入子订单
-    // * @param subOrder
-    // */
-    //@Insert("insert into `taobao-mall`.order_sub " +
-    //        "(id, parent_order_id, parent_order_sn," +
-    //        " sub_order_sn, shop_id, delivery_company," +
-    //        " delivery_sn, receiver_name, receiver_phone, " +
-    //        "receiver_province, receiver_city, receiver_district, " +
-    //        "receiver_detail_address, payment_time,is_delete) values " +
-    //        "(#{id},#{parentOrderId},#{parentOrderSn},#{subOrderSn}," +
-    //        "#{shopId},#{deliveryCompany},#{deliverySn},#{receiverName}," +
-    //        "#{receiverPhone},#{receiverProvince},#{receiverCity},#{receiverDistrict}," +
-    //        "#{receiverDetailAddress},#{paymentTime},#{isDelete})")
-    //void insert(SubOrder subOrder);
-
-
-    ///**
-    // * 根据主订单id查询子订单
-    // * @param orderId
-    // * @return
-    // */
-    //@Select("select * from `taobao-mall`.order_sub " +
-    //        "where parent_order_id = #{orderId}")
-    //SubOrder selectById(@Param("orderId") Long orderId);
+    /**
+     * 根据主订单编号查询子订单编号集合
+     * @param parentOrderSn
+     * @return
+     */
+    @Select("select sub_order_sn from sub_order " +
+            "where parent_order_sn = #{parentOrderSn}")
+    List<String> selectSnsByParentSn(
+            @Param("parentOrderSn") String parentOrderSn);
 
 
 
 
+    /**
+     * 根据主订单编号更新支付相关字段
+     * @param parentOrderSn
+     * @param status
+     * @param paymentType
+     * @param paymentTime
+     */
+    @Update("update sub_order set status = #{status}," +
+            "payment_type = #{paymentType}," +
+            "payment_time = #{paymentTime} " +
+            "where parent_order_sn = #{parentOrderSn}")
+    void updatePayInfoByParentSn(
+            @Param("parentOrderSn") String parentOrderSn,
+            @Param("status") Integer status,
+            @Param("paymentType") Integer paymentType,
+            @Param("paymentTime") LocalDateTime paymentTime);
+
+
+
+    /**
+     * 根据子订单编号更新支付相关字段
+     * @param subOrderSn
+     * @param status
+     * @param paymentType
+     * @param paymentTime
+     */
+    @Update("update sub_order set status = #{status}," +
+            "payment_type = #{paymentType}," +
+            "payment_time = #{paymentTime} " +
+            "where sub_order_sn = #{subOrderSn}")
+    void updatePayInfoBySubSn(
+            @Param("subOrderSn") String subOrderSn,
+            @Param("status") Integer status,
+            @Param("paymentType") Integer paymentType,
+            @Param("paymentTime") LocalDateTime paymentTime);
+
+
+
+    /**
+     * 查询主订单状态
+     * @param subOrderSn
+     */
+    @Select("select status from sub_order " +
+            "where sub_order_sn = #{subOrderSn}")
+    Integer selectStatus(String subOrderSn);
 }

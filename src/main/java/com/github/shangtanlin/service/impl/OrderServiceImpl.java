@@ -407,6 +407,7 @@ public class OrderServiceImpl
                     .shopId(shopReq.getShopId())
                     .remark(shopReq.getShopRemark())
                     .payDeadline(deadline)
+                    .paymentType(dto.getPaymentType())
 
                     // 状态
                     .status(0)
@@ -490,6 +491,7 @@ public class OrderServiceImpl
 
         //5.判断商品来源，如果是购物车中的商品，则将Redis和Mysql中对应的数据删除
         cleanCartItems(userId,dto);
+
 
 
         //6.扣减库存
@@ -595,9 +597,11 @@ public class OrderServiceImpl
             throw new BusinessException("订单状态异常");
         }
         //关闭主订单
-        parentOrderMapper.setStatusBySnAndUserId(orderSn,userId,4);
+        parentOrderMapper.setStatusBySnAndUserId(orderSn,userId,4,0);
+
+
         //关闭子订单
-        subOrderMapper.setStatusByParentSn(orderSn,userId,4);
+        subOrderMapper.setStatusByParentSn(orderSn,userId,4,0);
 
         //2.回补库存
         // A. 查出该主订单下所有的订单项（OrderItem）
@@ -723,46 +727,128 @@ public class OrderServiceImpl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean paySuccess(String orderSn, Integer paymentType) {
-            //Long userId = UserHolder.getUser().getId();
 
-            // 1. 查出订单
+
+            // 1. 查出订单,判断订单是否存在
             //由于需要手机扫码测试，这里直接根据订单Sn查，先不传userId
             ParentOrder parentOrder = parentOrderMapper.selectBySn(orderSn);
-
-
-            // 2. 状态判断（幂等性保护）
-            if (parentOrder == null) {
+            SubOrder subOrder = subOrderMapper.selectByOrderSn(orderSn);
+            if (parentOrder == null && subOrder == null) {
                 throw new BusinessException("订单不存在");
             }
-
-
-            if (parentOrder.getStatus() != 0) {
-                log.warn("订单 {} 状态已变更为 {}，跳过支付逻辑", orderSn, parentOrder.getStatus());
-                return true; // 已经处理过了，直接回成功
+            if (parentOrder != null) {
+               return parentOrderPaySuccess(orderSn,paymentType);
             }
 
-            // 3. 修改主订单和子订单状态
-            //这里由于要用手机扫码测试，没有token，就先直接设置订单状态了，不用userId；
-            parentOrderMapper.setStatusWithoutUserId(orderSn, OrderStatusConstant.PENDING_SHIP);
-            subOrderMapper.setStatusWithoutUserId(orderSn, OrderStatusConstant.PENDING_SHIP);
-
-            //修改主、子订单支付类型和时间
-            LocalDateTime paymentTime = LocalDateTime.now();
-            parentOrderMapper.setPaymentType(orderSn,paymentType,paymentTime);
-            subOrderMapper.setPaymentType(orderSn,paymentType,paymentTime);
+            return subOrderPaySuccess(orderSn,paymentType);
+    }
 
 
+    /**
+     * 主订单支付成功
+     * @param parentOrderSn
+     * @return
+     */
+    private boolean parentOrderPaySuccess(String parentOrderSn,Integer paymentType) {
+        // 1. 行锁查询，保证并发安全
+        ParentOrder parentOrder = parentOrderMapper.selectBySnForUpdate(parentOrderSn);
 
-            //4.核销优惠券(如果有使用优惠券)
-            if (parentOrder.getCouponUserRecordId() != null) {
-                couponService.useCoupon(parentOrder.getCouponUserRecordId());
-            }
+        // 2. 幂等判断：如果状态已经不是待支付(0)，说明处理过了
+        if (parentOrder.getStatus() != 0) {
+            return true;
+        }
+
+        // 3. 时间校验：防止超时支付导致的库存/优惠券逻辑混乱
+        if (LocalDateTime.now().isAfter(parentOrder.getPayDeadline())) {
+            throw new BusinessException("订单已超时！");
+        }
+
+        // 4. 一次性更新状态和支付信息
+        LocalDateTime paymentTime = LocalDateTime.now();
+        parentOrderMapper.updatePayInfo(parentOrderSn, OrderStatusConstant.PENDING_SHIP, paymentType, paymentTime);
+        subOrderMapper.updatePayInfoByParentSn(parentOrderSn, OrderStatusConstant.PENDING_SHIP, paymentType, paymentTime);
+
+        // 5. 核销优惠券
+        if (parentOrder.getCouponUserRecordId() != null) {
+            couponService.useCoupon(parentOrder.getCouponUserRecordId());
+        }
+
+        // 6. 注册事务钩子同步 ES (保持你原来的写法，很棒)
+        registerEsSyncHook(parentOrderSn);
+
+        return true;
+    }
 
 
+
+    /**
+     * 子订单支付成功(默认无优惠券)
+     * @param subOrderSn
+     * @return
+     */
+    private boolean subOrderPaySuccess(String subOrderSn,Integer paymentType) {
+        // 1. 行锁查询，保证并发安全
+        SubOrder subOrder = subOrderMapper.selectByOrderSn(subOrderSn);
+
+        // 2. 幂等判断：如果状态已经不是待支付(0)，说明处理过了
+        if (subOrder.getStatus() != 0) {
+            return true;
+        }
+
+        // 3. 时间校验：防止超时支付导致的库存/优惠券逻辑混乱
+        if (LocalDateTime.now().isAfter(subOrder.getPayDeadline())) {
+            throw new BusinessException("订单已超时！");
+        }
+
+        // 4. 一次性更新状态和支付信息
+        LocalDateTime paymentTime = LocalDateTime.now();
+        subOrderMapper.updatePayInfoBySubSn(subOrderSn, OrderStatusConstant.PENDING_SHIP, paymentType, paymentTime);
+
+
+        // 5. 核心逻辑：联动检查父订单,判断父订单下的子订单是否都已经支付
+        checkAndPayParentOrder(subOrder.getParentOrderSn());
+
+        // 6. 注册事务钩子同步 ES (保持你原来的写法，很棒)
+        registerEsSyncHook(subOrderSn);
+
+        return true;
+    }
+
+
+    /**
+     * 子订单单独支付时检查，判断父订单下的子订单是否都已经支付
+     * @param parentOrderSn
+     */
+    private void checkAndPayParentOrder(String parentOrderSn) {
+        log.info(">>>>>> 开始联动检查父订单状态: {}", parentOrderSn);
+        // 查询该父订单下【非成功】状态的子订单数量
+        int unPaid = subOrderMapper.selectUnpaid(parentOrderSn);
+
+        if (unPaid == 0) {
+            log.info("父订单 {} 下所有子订单已支付，更新父订单状态", parentOrderSn);
+            // 更新父订单表状态
+            parentOrderMapper.updateStatus(parentOrderSn, OrderStatusEnum.WAIT_DELIVERY.getCode());
+            // 如果你以后给父订单建了 ES 索引，记得在这里也 update 一下
+        }
+    }
+
+
+    /**
+     * 将子订单数据同步到ES
+     * @param orderSn
+     */
+    private void registerEsSyncHook(String orderSn) {
         // 5. 发送 MQ 消息同步 ES 状态
         // 注意：这里需要先获取该主订单下的所有子订单 ID
-        List<Long> subOrderIds = subOrderMapper.selectIdsByParentSn(orderSn);
-
+        List<Long> subOrderIds = new ArrayList<>();
+        ParentOrder parentOrder = parentOrderMapper.selectBySn(orderSn);
+        SubOrder subOrder = subOrderMapper.selectByOrderSn(orderSn);
+        if (parentOrder != null) {
+            subOrderIds.addAll(subOrderMapper.selectIdsByParentSn(orderSn));
+        }
+        else {
+            subOrderIds.add(subOrder.getId());
+        }
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
@@ -781,12 +867,7 @@ public class OrderServiceImpl
                 }
             });
         }
-
-
-            log.info("💰 订单 {} 支付成功！", orderSn);
-            return true;
     }
-
 
 
     /**
@@ -950,8 +1031,17 @@ public class OrderServiceImpl
      * @param parentOrderSn
      */
     @Override
-    public int getParentOrderStatus(String parentOrderSn) {
+    public Integer getParentOrderStatus(String parentOrderSn) {
         return parentOrderMapper.selectStatus(parentOrderSn);
+    }
+
+    /**
+     * 查询子订单状态
+     * @param subOrderSn
+     */
+    @Override
+    public Integer getSubOrderStatus(String subOrderSn) {
+        return subOrderMapper.selectStatus(subOrderSn);
     }
 
 
@@ -989,17 +1079,17 @@ public class OrderServiceImpl
      */
     @Override
     public OrderCreateVO resumePay(String subOrderSn) {
+
         SubOrder subOrder = subOrderMapper.selectByOrderSn(subOrderSn);
-        OrderCreateVO vo = new OrderCreateVO();
-        vo.setOrderSn(subOrderSn);
-        vo.setPaymentType(subOrder.getPaymentType());
-        vo.setPayAmount(subOrder.getPayAmount());
-        LocalDateTime payDeadline = subOrder.getPayDeadline();
-        // 确保不返回负数
-        Long remainingMillis = Math.max(0, Duration.between(LocalDateTime.now(), payDeadline).toMillis());
-        vo.setPayDeadline(remainingMillis);
-        return vo;
+        //判断主是否有使用优惠券，如果有则需要一起支付
+        ParentOrder parentOrder = parentOrderMapper.selectBySn(subOrder.getParentOrderSn());
+        if (parentOrder.getCouponUserRecordId() == null) {
+            return buildVoAllowedSplit(subOrderSn);
+        }
+        else return buildVoProhibitedSplit(subOrderSn);
     }
+
+
 
 
     /**
@@ -1067,6 +1157,8 @@ public class OrderServiceImpl
         log.info("💰 订单 {} 支付成功！", subOrderSn);
         return true;
     }
+
+
 
 
     /**
@@ -1315,7 +1407,10 @@ public class OrderServiceImpl
             String cartRedisKey = RedisConstant.CART_CACHE_KEY + userId;
             // 将 List<Long> 转为 String[] 适配 Redis 的 hdel 参数
             Object[] fields = skuIds.stream().map(String::valueOf).toArray();
-            stringRedisTemplate.opsForHash().delete(cartRedisKey, fields);
+            Long deletedCount = stringRedisTemplate.opsForHash().delete(cartRedisKey, fields);
+            // 记录日志：打印本次操作的用户、ID列表以及实际删除的数量
+            log.info("清理购物车Redis记录成功 | 用户ID: {} | 尝试清理SKUs: {} | 实际移除数量: {}",
+                    userId, skuIds, deletedCount);
         } catch (Exception e) {
             // Redis 失败通常不抛出异常中断下单，记录日志即可，以 MySQL 为准
             log.error("清理用户[{}]购物车Redis数据失败: {}", userId, e.getMessage());
@@ -1425,6 +1520,57 @@ public class OrderServiceImpl
             parentOrderMapper.updateStatus(parentOrderSn, OrderStatusEnum.SUCCESS.getCode());
             // 如果你以后给父订单建了 ES 索引，记得在这里也 update 一下
         }
+    }
+
+
+    /**
+     * 允许订单分开支付(主订单未使用优惠券)
+     * @param subOrderSn
+     * @return
+     */
+    private OrderCreateVO buildVoAllowedSplit(String subOrderSn) {
+        SubOrder subOrder = subOrderMapper.selectByOrderSn(subOrderSn);
+        OrderCreateVO vo = new OrderCreateVO();
+        vo.setAllowSplitPayment(true);
+        vo.setOrderSn(subOrderSn);
+        vo.setPaymentType(subOrder.getPaymentType());
+        vo.setPayAmount(subOrder.getPayAmount());
+
+        LocalDateTime payDeadline = subOrder.getPayDeadline();
+        // 将 LocalDateTime 转换为 毫秒时间戳 (Long)
+        Long deadlineTimestamp = payDeadline.atZone(ZoneId.systemDefault())
+                .toInstant()
+                .toEpochMilli();
+        vo.setPayDeadline(deadlineTimestamp);
+        return vo;
+    }
+
+
+    /**
+     * 禁止主子订单分开支付（返回主订单信息及标识）
+     * @param subOrderSn
+     * @return
+     */
+    private OrderCreateVO buildVoProhibitedSplit(String subOrderSn) {
+        SubOrder subOrder = subOrderMapper.selectByOrderSn(subOrderSn);
+        ParentOrder parentOrder = parentOrderMapper.selectBySn(subOrder.getParentOrderSn());
+        OrderCreateVO vo = new OrderCreateVO();
+        vo.setOrderSn(parentOrder.getOrderSn());
+        vo.setAllowSplitPayment(false);
+        vo.setPaymentType(parentOrder.getPaymentType());
+        vo.setPayAmount(parentOrder.getPayAmount());
+
+        //说明该主订单下包含哪些子订单
+        List<String> Sns = subOrderMapper.selectSnsByParentSn(parentOrder.getOrderSn());
+        vo.setSubOrderSns(Sns);
+
+        LocalDateTime payDeadline = subOrder.getPayDeadline();
+        // 将 LocalDateTime 转换为 毫秒时间戳 (Long)
+        Long deadlineTimestamp = payDeadline.atZone(ZoneId.systemDefault())
+                .toInstant()
+                .toEpochMilli();
+        vo.setPayDeadline(deadlineTimestamp);
+        return vo;
     }
 
 

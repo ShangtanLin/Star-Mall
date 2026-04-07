@@ -87,7 +87,7 @@ public interface OrderService {
      * 查询主订单状态
      * @param parentOrderSn
      */
-    int getParentOrderStatus(String parentOrderSn);
+    Integer getParentOrderStatus(String parentOrderSn);
 
 
 
@@ -115,4 +115,12 @@ public interface OrderService {
      * @return
      */
     boolean payResumeSuccess(String subOrderSn, Integer paymentType);
+
+
+
+    /**
+     * 查询主订单状态
+     * @param subOrderSn
+     */
+    Integer getSubOrderStatus(String subOrderSn);
 }

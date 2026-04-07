@@ -54,16 +54,15 @@ public class OrderController {
     }
 
 
+
     /**
-     * 继续支付（子订单）
+     * 重新提交（子订单）
      * @param subOrderSn
      * @return
      */
     @PostMapping("/submit/resume/{subOrderSn}")
     @Operation(summary = "继续支付接口")
-    public Result<?> resumePay(@RequestParam("subOrderSn") String subOrderSn) {
-        // 核心逻辑：创建 ParentOrder -> 创建多条 SubOrder -> 创建多条 OrderItem -> 扣减库存 -> 清理购物车
-        // 返回父订单号（orderSn），前端拿到后跳转支付页
+    public Result<?> resumePay(@PathVariable("subOrderSn") String subOrderSn) {
         OrderCreateVO vo = orderService.resumePay(subOrderSn);
         return Result.ok(vo);
     }
@@ -72,54 +71,29 @@ public class OrderController {
 
 
     /**
-     * 模拟支付(主订单)
-     * @param parentOrderSn(主订单编号)
+     * 模拟支付(主子订单共用)
+     * @param orderSn(主订单编号)
      * @param paymentType
      * @return
      */
     @GetMapping("/pay")
-    public String doMockPay(@RequestParam("parentOrderSn") String parentOrderSn,@RequestParam("paymentType")Integer paymentType) {
-        log.info("📱 手机端请求支付，单号：{}", parentOrderSn);
+    public String doMockPay(@RequestParam("orderSn") String orderSn,@RequestParam("paymentType")Integer paymentType) {
+        log.info("📱 手机端请求支付，单号：{}", orderSn);
 
         // 调用你之前写的业务逻辑，把状态从 0 改为 1
         // 同时也别忘了在 paySuccess 里记录流水和打印日志
         //调用订单支付成功的逻辑
-        boolean success = orderService.paySuccess(parentOrderSn, paymentType);
+        boolean success = orderService.paySuccess(orderSn, paymentType);
 
         if (success) {
             return "<h1 style='color:green;text-align:center;'>🎉 支付成功！</h1>" +
-                    "<p style='text-align:center;'>订单 " + parentOrderSn + " 已确认，请查看电脑页面。</p>";
+                    "<p style='text-align:center;'>订单 " + orderSn + " 已确认，请查看电脑页面。</p>";
         } else {
             return "<h1 style='color:red;text-align:center;'>❌ 支付失败</h1>" +
                     "<p style='text-align:center;'>订单状态异常或已过期。</p>";
         }
     }
 
-
-
-    /**
-     * 模拟支付(子订单)
-     * @param subOrderSn(子订单编号)
-     * @param paymentType
-     * @return
-     */
-    @GetMapping("/pay/resume")
-    public String resumePay(@RequestParam("subOrderSn") String subOrderSn,@RequestParam("paymentType")Integer paymentType) {
-        log.info("📱 手机端请求支付，单号：{}", subOrderSn);
-
-        // 调用你之前写的业务逻辑，把状态从 0 改为 1
-        // 同时也别忘了在 paySuccess 里记录流水和打印日志
-        //调用订单支付成功的逻辑
-        boolean success = orderService.payResumeSuccess(subOrderSn, paymentType);
-
-        if (success) {
-            return "<h1 style='color:green;text-align:center;'>🎉 支付成功！</h1>" +
-                    "<p style='text-align:center;'>订单 " + subOrderSn + " 已确认，请查看电脑页面。</p>";
-        } else {
-            return "<h1 style='color:red;text-align:center;'>❌ 支付失败</h1>" +
-                    "<p style='text-align:center;'>订单状态异常或已过期。</p>";
-        }
-    }
 
 
 
@@ -229,12 +203,24 @@ public class OrderController {
 
 
     /**
-     * 查询订单状态（供前端轮询）
+     * 查询主订单状态（供前端轮询）
      * @param parentOrderSn 主订单编号
      */
-    @GetMapping("/getStatus/{parentOrderSn}")
-    public Result<?> deleteOrder(@PathVariable("parentOrderSn") String parentOrderSn) {
-        int status = orderService.getParentOrderStatus(parentOrderSn);
+    @GetMapping("/status/parent/{parentOrderSn}")
+    public Result<?> getParentOrderStatus(@PathVariable("parentOrderSn") String parentOrderSn) {
+        Integer status = orderService.getParentOrderStatus(parentOrderSn);
+        return Result.ok(status);
+    }
+
+
+
+    /**
+     * 查询子订单状态（供前端轮询）
+     * @param subOrderSn 子订单编号
+     */
+    @GetMapping("/status/sub/{subOrderSn}")
+    public Result<?> getSubOrderStatus(@PathVariable("subOrderSn") String subOrderSn) {
+        Integer status = orderService.getSubOrderStatus(subOrderSn);
         return Result.ok(status);
     }
 
