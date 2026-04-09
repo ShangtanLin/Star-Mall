@@ -54,6 +54,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -358,8 +359,20 @@ public class OrderServiceImpl
                 // 逻辑删除
                 .isDelete(0) // 0-未删除
                 .build();
-        // 执行插入
-        parentOrderMapper.insert(parentOrder);
+
+
+        try {
+            // 2. 构造对象与执行业务逻辑
+            parentOrder.setOrderSn("202604090567677953");
+            parentOrderMapper.insert(parentOrder);
+
+            // 3. 其他操作（如扣减库存等）
+        } catch (DuplicateKeyException e) {
+            // 3. 兜底捕获 (最后一道防线)
+            // 此时大概率是 ID 生成冲突或极端的并发逻辑漏洞
+            log.error("数据库唯一索引冲突！OrderSn: {}, UserId: {}", parentOrder.getOrderSn(), userId);
+            throw new BusinessException("该订单已存在，请勿重复下单！");
+        }
 
 
         // --- 2. 封装 子订单 实体 ---
@@ -872,56 +885,58 @@ public class OrderServiceImpl
 
     /**
      * 查询订单列表(ES索引实现)
-     * @param subOrderId
+     * @param keyword
      * @param status
-     * @param spuName
      * @param pageNo
      * @param pageSize
      * @return
      */
     @Override
     public PageResult<SubOrderVO> getSubOrderList(
-            Long subOrderId,
+            String keyword,
             Integer status,
-            String spuName,
             Integer pageNo,
             Integer pageSize) throws IOException {
-        // 1. 获取当前登录用户 ID (安全隔离核心)
+        // 1. 获取当前用户（安全隔离）
         Long userId = UserHolder.getUser().getId();
 
-        // 2. 构建查询条件 (使用 9.x Query.of 风格)
+        // 2. 构建查询条件
         Query query = Query.of(q -> q.bool(b -> {
-            // 核心：锁定当前用户
-            b.must(m -> m.term(t -> t.field("user_id").value(userId)));
+            // --- 必须满足 (Must) ---
+            b.must(m -> m.term(t -> t.field("user_id").value(userId))); // 权限锁定
+            b.must(m -> m.term(t -> t.field("is_delete").value(0)));   // 逻辑删除过滤
 
-            // 精确匹配子订单ID
-            if (subOrderId != null) {
-                b.must(m -> m.term(t -> t.field("id").value(subOrderId)));
-            }
-
-
-            // 2. 逻辑删除过滤（核心：只看活着的订单）
-            b.must(m -> m.term(t -> t.field("is_delete").value(0)));
-
-            // 状态过滤
             if (status != null) {
                 b.must(m -> m.term(t -> t.field("status").value(status)));
             }
 
-            // ✅ Nested 嵌套查询处理商品名
-            if (StringUtils.hasText(spuName)) {
-                b.must(m -> m.nested(n -> n
-                        .path("items")
-                        .query(nq -> nq.match(mq -> mq
-                                .field("items.spu_name")
-                                .query(spuName)
-                        ))
-                ));
+            // --- 搜索框逻辑：订单号 OR 商品名 (Should) ---
+            if (StringUtils.hasText(keyword)) {
+                b.must(m -> m.bool(sb -> {
+                    // 概率 A：匹配订单号 (精确匹配)
+                    sb.should(s -> s.term(t -> t.field("sub_order_sn").value(keyword)));
+
+                    // 如果你想支持订单号前缀模糊查询，可以换成下面这行:
+                    // sb.should(s -> s.prefix(p -> p.field("id").value(keyword)));
+
+                    // 概率 B：匹配商品名 (Nested 嵌套全文检索)
+                    sb.should(s -> s.nested(n -> n
+                            .path("items")
+                            .query(nq -> nq.match(mq -> mq
+                                    .field("items.spu_name")
+                                    .query(keyword)
+                            ))
+                    ));
+
+                    // 核心：以上两个 should 必须中一个
+                    sb.minimumShouldMatch("1");
+                    return sb;
+                }));
             }
             return b;
         }));
 
-        // 3. 构建 SearchRequest (使用 9.1+ NamedValue 方式处理高亮)
+        // 3. 构建 SearchRequest (分页、排序、高亮)
         SearchRequest searchRequest = SearchRequest.of(s -> s
                 .index("sub_order_index")
                 .query(query)
@@ -937,26 +952,20 @@ public class OrderServiceImpl
                 )
         );
 
-        // 4. 执行搜索 (参照 searchProduct)
+        // 4. 执行并解析结果
         SearchResponse<SubOrderIndexDoc> response = elasticsearchClient.search(searchRequest, SubOrderIndexDoc.class);
 
-        // 5. 结果映射 + 高亮处理
         List<SubOrderVO> voList = response.hits().hits().stream()
                 .map(hit -> {
                     SubOrderIndexDoc doc = hit.source();
                     if (doc == null) return null;
+                    SubOrderVO vo = convertToVO(doc); // 调用你原有的转换工具
 
-                    // ✅ 关键：调用统一的转换函数，处理金额、状态描述等
-                    SubOrderVO vo = convertToVO(doc);
-
-                    // 6. 保持你原来的高亮覆盖逻辑
-                    if (hit.highlight() != null && !hit.highlight().isEmpty()) {
-                        if (hit.highlight().containsKey("items.spu_name")) {
-                            String highlightedName = hit.highlight().get("items.spu_name").get(0);
-                            if (vo.getItems() != null && !vo.getItems().isEmpty()) {
-                                // 覆盖第一个命中的商品名
-                                vo.getItems().get(0).setSpuName(highlightedName);
-                            }
+                    // 处理商品名高亮
+                    if (hit.highlight() != null && hit.highlight().containsKey("items.spu_name")) {
+                        String highlightedName = hit.highlight().get("items.spu_name").get(0);
+                        if (!vo.getItems().isEmpty()) {
+                            vo.getItems().get(0).setSpuName(highlightedName);
                         }
                     }
                     return vo;
@@ -964,7 +973,6 @@ public class OrderServiceImpl
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
-        // 6. 按照你的 PageResult 构造返回
         return new PageResult<>(response.hits().total().value(), voList);
     }
 

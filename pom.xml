@@ -156,5 +156,11 @@
       <version>2.3.0</version>
     </dependency>
 
+    <!--处理DuplicateKeyException使用-->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc</artifactId>
+    </dependency>
+
   </dependencies>
 </project>

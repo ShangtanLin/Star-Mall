@@ -116,25 +116,27 @@ public class OrderController {
 
 
     /**
-     * 查询订单列表(ES索引实现)
-     * @param subOrderId
-     * @param status
-     * @param spuName
-     * @param pageNo
-     * @param pageSize
-     * @return
+     * 查询订单列表(ES索引实现 - 支持一键通搜)
+     * @param keyword  搜索关键词（既能搜订单号，也能搜商品名）
+     * @param status   订单状态筛选（可选）
+     * @param pageNo   当前页码
+     * @param pageSize 分页大小
      */
     @GetMapping("/list")
-    public Result<?> getSubOrderList
-    (@RequestParam(value = "subOrderId",required = false) Long subOrderId,
-     @RequestParam(value = "status",required = false) Integer status,
-     @RequestParam(value = "spuName",required = false) String spuName,
-     @RequestParam(value = "pageNo",defaultValue = "1") Integer pageNo,
-     @RequestParam(value = "pageSize",defaultValue = "12") Integer pageSize) throws IOException {
+    public Result<?> getSubOrderList(
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(value = "status", required = false) Integer status,
+            @RequestParam(value = "pageNo", defaultValue = "1") Integer pageNo,
+            @RequestParam(value = "pageSize", defaultValue = "12") Integer pageSize) throws IOException {
+
+        // 调用 Service 层的新接口逻辑
         PageResult<SubOrderVO> subOrderVOPageResult = orderService
                 .getSubOrderList(
-                        subOrderId,status,spuName,
-                        pageNo,pageSize);
+                        keyword,
+                        status,
+                        pageNo,
+                        pageSize);
+
         return Result.ok(subOrderVOPageResult);
     }
 

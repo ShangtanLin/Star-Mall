@@ -63,17 +63,17 @@ public interface OrderService {
 
     /**
      * 查询订单列表(ES索引实现)
-     * @param subOrderId
+     * @param keyword
      * @param status
-     * @param spuName
      * @param pageNo
      * @param pageSize
      * @return
      */
-    PageResult<SubOrderVO> getSubOrderList
-    (Long subOrderId, Integer status,
-     String spuName, Integer pageNo,
-     Integer pageSize) throws IOException;;
+    PageResult<SubOrderVO> getSubOrderList(
+            String keyword,   // 统一关键词
+            Integer status,
+            Integer pageNo,
+            Integer pageSize) throws IOException;
 
 
     /**
