@@ -35,4 +35,12 @@ public class RedisConstant {
 
 
     public static final String ORDER_SUBMIT_KEY  = "order:submit:token:";
+
+
+
+
+    public static final String CART_EMPTY_STUB = "EMPTY";
+
+    // SKU 布隆过滤器 Key 名
+    public static final String SKU_BLOOM_FILTER_KEY = "sku:bloom:filter";
 }

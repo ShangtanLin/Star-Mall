@@ -7,4 +7,8 @@ public class CartConstant {
     public static final Integer WRITE_BACK_DELETE = 2;
     public static final Integer WRITE_BACK_CLEAN = 3;
 
+
+
+
+
 }

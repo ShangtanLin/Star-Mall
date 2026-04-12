@@ -10,16 +10,24 @@ spring:
       password: 123456
       database: 1
 
+
+
   rabbitmq:
     host: 192.168.244.130
     port: 5672
     username: guest
     password: guest
-    virtual-host: /
+
+    # ===== 生产者可靠性（没问题，保留）=====
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+
+    # ===== 消费者配置 =====
     listener:
       simple:
         acknowledge-mode: manual
-        # 关键配置：设置为 false，防止因队列不存在导致启动失败
         missing-queues-fatal: false
 
 
@@ -31,3 +39,11 @@ mybatis:
 
 
 
+management:
+  health:
+    elasticsearch:
+      enabled: false
+
+logging:
+  level:
+    com.github.shangtanlin: DEBUG

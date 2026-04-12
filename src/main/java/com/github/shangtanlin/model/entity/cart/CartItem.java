@@ -21,4 +21,6 @@ public class CartItem {
 
     private LocalDateTime updateTime;
 
+    private Integer isDelete; //逻辑删除
+
 }

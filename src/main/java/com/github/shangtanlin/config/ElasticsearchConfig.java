@@ -17,8 +17,10 @@ import org.apache.http.ssl.SSLContextBuilder;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.elasticsearch.client.RestClient;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.elasticsearch.RestClientBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 import javax.net.ssl.SSLContext;
 
@@ -98,4 +100,5 @@ public class ElasticsearchConfig {
             }
         };
     }
+
 }

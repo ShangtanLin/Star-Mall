@@ -54,7 +54,8 @@ public class OrderTimeoutListener {
 
             // 4. 关键：抛出异常触发 RabbitMQ 的重试机制
             // 只有抛出异常，消息才不会被确认，会根据配置进行重试或进入死信队列
-            throw new RuntimeException("自动关单失败，等待 MQ 重试: " + orderSn, e);
+            //throw new RuntimeException("自动关单失败，等待 MQ 重试: " + orderSn, e);
+
         }
 
     }

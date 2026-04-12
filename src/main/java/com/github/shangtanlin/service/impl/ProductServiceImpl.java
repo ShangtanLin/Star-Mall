@@ -179,7 +179,7 @@ public class ProductServiceImpl implements ProductService {
         String spuSalesKey = SPU_SALES_RANK_KEY;
         Set<String> top10SpuIds = stringRedisTemplate.opsForZSet().reverseRange(spuSalesKey, 0, 9);
         List<Long> ids = top10SpuIds.stream().map(Long::valueOf).collect(Collectors.toList());
-        List<Spu> spus = spuMapper.selectByIds(ids);
+        List<Spu> spus = spuMapper.selectHotByIds(ids);
         //对查询到的结果按zset返回的id排序
         List<Spu> afterSortSpu = new ArrayList<>();
         Map<Long, Spu> spuMap = spus.stream().collect(Collectors.toMap(Spu::getId, s -> s));

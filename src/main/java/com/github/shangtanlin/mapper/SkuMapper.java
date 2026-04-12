@@ -51,4 +51,13 @@ public interface SkuMapper extends BaseMapper<Sku> {
     @Update("update sku set stock = stock + #{quantity} " +
             "where id = #{skuId}")
     int addStock(@Param("skuId") Long skuId,@Param("quantity") Integer quantity);
+
+
+    /**
+     * 查询所有skuId
+     * @return
+     */
+    @Select("select id from sku ")
+    List<Long> findAllSkuIds();
+
 }

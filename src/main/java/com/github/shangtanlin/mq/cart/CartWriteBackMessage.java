@@ -5,6 +5,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
@@ -27,5 +29,14 @@ public class CartWriteBackMessage {
      * 更改后的最新数据
      */
     private CartRedisJson cartRedisJson;
+
+
+    /**
+     * 消息发送的时间
+     */
+    private LocalDateTime createTime;
+
+
+    private String msgId; //消息ID
 
 }

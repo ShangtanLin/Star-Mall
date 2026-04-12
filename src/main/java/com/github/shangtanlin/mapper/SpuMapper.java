@@ -33,5 +33,7 @@ public interface SpuMapper extends BaseMapper<Spu> {
         </foreach>
     </script>
     """)
-    List<Spu> selectByIds(@Param("ids") List<Long> ids);
+    List<Spu> selectHotByIds(@Param("ids") List<Long> ids);
+
+
 }
