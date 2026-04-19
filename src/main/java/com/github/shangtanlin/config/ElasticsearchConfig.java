@@ -45,7 +45,7 @@ public class ElasticsearchConfig {
         // 3. 用户名 + 密码
         CredentialsProvider provider = new BasicCredentialsProvider();
         provider.setCredentials(AuthScope.ANY,
-                new UsernamePasswordCredentials("elastic", "OHS8M1fvu3s9F+0MQJNv"));
+                new UsernamePasswordCredentials("elastic", "z0Me_63Lyq4GnIZ0g_KW"));
 
         // 4. 构建 RestClient
         RestClient restClient = RestClient.builder(

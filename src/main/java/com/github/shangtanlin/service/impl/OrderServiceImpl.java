@@ -17,6 +17,8 @@ import com.github.pagehelper.PageInfo;
 import com.github.shangtanlin.common.constant.OrderStatusConstant;
 import com.github.shangtanlin.common.constant.RedisConstant;
 import com.github.shangtanlin.common.exception.BusinessException;
+
+import static com.github.shangtanlin.common.constant.RedisConstant.SPU_SALES_RANK_KEY;
 import com.github.shangtanlin.common.utils.OrderStatusUtil;
 import com.github.shangtanlin.common.utils.UserHolder;
 import com.github.shangtanlin.config.ElasticsearchConfig;
@@ -828,7 +830,11 @@ public class OrderServiceImpl
             couponService.useCoupon(parentOrder.getCouponUserRecordId());
         }
 
-        // 6. 注册事务钩子同步 ES (保持你原来的写法，很棒)
+        // 6. 更新商品销量
+        List<OrderItem> orderItems = orderItemMapper.selectByParentSn(parentOrderSn);
+        updateSales(orderItems);
+
+        // 7. 注册事务钩子同步 ES (保持你原来的写法，很棒)
         registerEsSyncHook(parentOrderSn);
 
         return true;
@@ -863,7 +869,11 @@ public class OrderServiceImpl
         // 5. 核心逻辑：联动检查父订单,判断父订单下的子订单是否都已经支付
         checkAndPayParentOrder(subOrder.getParentOrderSn());
 
-        // 6. 注册事务钩子同步 ES (保持你原来的写法，很棒)
+        // 6. 更新商品销量
+        List<OrderItem> orderItems = orderItemMapper.selectBySubSn(subOrderSn);
+        updateSales(orderItems);
+
+        // 7. 注册事务钩子同步 ES (保持你原来的写法，很棒)
         registerEsSyncHook(subOrderSn);
 
         return true;
@@ -915,6 +925,30 @@ public class OrderServiceImpl
                 }
             });
         }
+    }
+
+
+    /**
+     * 更新商品销量（数据库总销量 + Redis今日销量）
+     * @param orderItems 订单项列表
+     */
+    private void updateSales(List<OrderItem> orderItems) {
+        if (CollectionUtils.isEmpty(orderItems)) {
+            return;
+        }
+
+        for (OrderItem item : orderItems) {
+            Long spuId = item.getSpuId();
+            Integer quantity = item.getQuantity();
+
+            // 1. 更新数据库总销量
+            spuMapper.incrementSales(spuId, quantity);
+
+            // 2. 更新Redis今日销量
+            stringRedisTemplate.opsForZSet().incrementScore(SPU_SALES_RANK_KEY, String.valueOf(spuId), quantity);
+        }
+
+        log.info("销量更新成功，共更新 {} 个商品", orderItems.size());
     }
 
 

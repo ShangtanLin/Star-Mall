@@ -29,6 +29,7 @@ import com.github.shangtanlin.model.vo.SkuVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.io.IOException;
@@ -60,6 +61,9 @@ public class ProductServiceImpl implements ProductService {
 
     @Autowired
     private ShopMapper shopMapper;
+
+    @Autowired
+    private SpuDailySalesMapper spuDailySalesMapper;
 
     //商品列表分页查询
     @Override //使用pagehelper插件进行分页查询
@@ -177,10 +181,44 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public List<ProductCardVO> getHotProductsToday() {
         String spuSalesKey = SPU_SALES_RANK_KEY;
-        Set<String> top10SpuIds = stringRedisTemplate.opsForZSet().reverseRange(spuSalesKey, 0, 9);
-        List<Long> ids = top10SpuIds.stream().map(Long::valueOf).collect(Collectors.toList());
+
+        // 1. 先查询Redis ZSet的数量
+        Long count = stringRedisTemplate.opsForZSet().size(spuSalesKey);
+
+        List<Long> ids;
+        Map<Long, Integer> todaySalesMap = new HashMap<>();  // 存储今日销量
+
+        if (count != null && count >= 10) {
+            // Redis数据充足，读取今日热门TOP10
+            Set<String> top10SpuIds = stringRedisTemplate.opsForZSet().reverseRange(spuSalesKey, 0, 9);
+            ids = top10SpuIds.stream().map(Long::valueOf).collect(Collectors.toList());
+
+            // 从Redis获取今日销量
+            for (String spuIdStr : top10SpuIds) {
+                Double score = stringRedisTemplate.opsForZSet().score(spuSalesKey, spuIdStr);
+                if (score != null) {
+                    todaySalesMap.put(Long.valueOf(spuIdStr), score.intValue());
+                }
+            }
+        } else {
+            // Redis数据不足，从数据库backup表读取昨日热门TOP10（包含销量）
+            List<SpuDailySales> backupList = spuDailySalesMapper.selectTop10WithSales();
+            ids = backupList.stream().map(SpuDailySales::getSpuId).collect(Collectors.toList());
+
+            // 从backup表获取销量
+            for (SpuDailySales backup : backupList) {
+                todaySalesMap.put(backup.getSpuId(), backup.getSales());
+            }
+        }
+
+        if (CollectionUtils.isEmpty(ids)) {
+            return new ArrayList<>();
+        }
+
+        // 2. 查询商品详情
         List<Spu> spus = spuMapper.selectHotByIds(ids);
-        //对查询到的结果按zset返回的id排序
+
+        // 3. 按id顺序排序（保持热门排名顺序）
         List<Spu> afterSortSpu = new ArrayList<>();
         Map<Long, Spu> spuMap = spus.stream().collect(Collectors.toMap(Spu::getId, s -> s));
         for (Long id : ids) {
@@ -189,11 +227,19 @@ public class ProductServiceImpl implements ProductService {
                 afterSortSpu.add(spu);
             }
         }
-        List<ProductCardVO> productCardVOS = afterSortSpu.stream().map(spu -> {
-            ProductCardVO productCardVO = buildProductCardVO(spu);
-            return productCardVO;
-        }).collect(Collectors.toList());
-        return productCardVOS;
+
+        // 4. 转换为VO返回，使用今日销量
+        return afterSortSpu.stream()
+                .map(spu -> {
+                    ProductCardVO vo = buildProductCardVO(spu);
+                    // 用今日销量替换总销量
+                    Integer todaySales = todaySalesMap.get(spu.getId());
+                    if (todaySales != null) {
+                        vo.setSales(todaySales);
+                    }
+                    return vo;
+                })
+                .collect(Collectors.toList());
     }
 
 

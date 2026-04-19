@@ -21,6 +21,14 @@ public interface OrderItemMapper extends BaseMapper<OrderItem> {
             "where parent_order_sn = #{orderSn}")
     List<OrderItem> selectByParentSn(@Param("orderSn") String orderSn);
 
+    /**
+     * 根据子订单编号查询订单项
+     * @param subOrderSn 子订单编号
+     * @return 订单项列表
+     */
+    @Select("select * from order_item where sub_order_sn = #{subOrderSn}")
+    List<OrderItem> selectBySubSn(@Param("subOrderSn") String subOrderSn);
+
 
 
 

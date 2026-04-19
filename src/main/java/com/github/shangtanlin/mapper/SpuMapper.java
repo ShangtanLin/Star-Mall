@@ -5,6 +5,7 @@ import com.github.shangtanlin.model.entity.product.Spu;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -35,5 +36,12 @@ public interface SpuMapper extends BaseMapper<Spu> {
     """)
     List<Spu> selectHotByIds(@Param("ids") List<Long> ids);
 
+    /**
+     * 增加商品销量
+     * @param spuId 商品ID
+     * @param quantity 增加的数量
+     */
+    @Update("UPDATE spu SET sales = sales + #{quantity} WHERE id = #{spuId}")
+    void incrementSales(@Param("spuId") Long spuId, @Param("quantity") Integer quantity);
 
 }
