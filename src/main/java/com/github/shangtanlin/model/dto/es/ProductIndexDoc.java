@@ -6,9 +6,12 @@ import lombok.Data;
 import java.math.BigDecimal;
 
 @Data
-public class ProductDoc {
+public class ProductIndexDoc {
     @JsonProperty("id")
     private Long id;
+
+    @JsonProperty("shop_id")
+    private Long shopId;
 
     @JsonProperty("name")
     private String name;
@@ -34,7 +37,6 @@ public class ProductDoc {
     @JsonProperty("update_time")
     private String updateTime;
 
-    @JsonProperty("sales")
     private Integer sales;
 
     @JsonProperty("min_price")

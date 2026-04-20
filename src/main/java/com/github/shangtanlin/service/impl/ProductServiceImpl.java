@@ -2,6 +2,7 @@ package com.github.shangtanlin.service.impl;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 
+import co.elastic.clients.elasticsearch._types.query_dsl.Operator;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
@@ -9,11 +10,12 @@ import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.HighlightField;
 
 
+import co.elastic.clients.json.JsonData;
 import co.elastic.clients.util.NamedValue;
 import com.alibaba.fastjson.JSON;
 import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
-import com.github.shangtanlin.model.dto.es.ProductDoc;
+import com.github.shangtanlin.model.dto.es.ProductIndexDoc;
 import com.github.shangtanlin.model.dto.ProductQueryDTO;
 import com.github.shangtanlin.mapper.*;
 import com.github.shangtanlin.model.entity.*;
@@ -33,6 +35,7 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -100,25 +103,42 @@ public class ProductServiceImpl implements ProductService {
     //搜索商品
     @Override
     public PageResult<ProductCardVO> searchProduct(String keyword, Long categoryId,
+                                                   BigDecimal minPrice, BigDecimal maxPrice,
                                                    Integer pageNo, Integer pageSize) throws IOException {
 
         // 1. 构建查询条件
         Query query = Query.of(q -> q.bool(b -> {
+            // 关键词匹配 (Must)
             if (StringUtils.hasText(keyword)) {
                 b.must(m -> m.multiMatch(mm -> mm
                         .query(keyword)
                         .fields("name", "description")
+                        .operator(Operator.And) // 解决你之前提到的“优衣库”分词问题
                 ));
             }
+
+            // 分类过滤 (Filter)
             if (categoryId != null) {
                 b.filter(f -> f.term(t -> t
                         .field("category_id")
                         .value(categoryId)
                 ));
             }
+
+            // ✅ 针对 9.2.2 版本的价格区间过滤
+            if (minPrice != null || maxPrice != null) {
+                b.filter(f -> f.range(r -> r
+                        .untyped(u -> {
+                            u.field("min_price"); // 现在 .field() 绝对可以被识别
+                            if (minPrice != null) u.gte(JsonData.of(minPrice));
+                            if (maxPrice != null) u.lte(JsonData.of(maxPrice));
+                            return u;
+                        })
+                ));
+            }
+
             return b;
         }));
-
         // 2. 使用 9.x 最新的 NamedValue 方式构建 SearchRequest
         SearchRequest searchRequest = SearchRequest.of(s -> s
                 .index("product_index")
@@ -141,12 +161,12 @@ public class ProductServiceImpl implements ProductService {
 
 
         // 4. 执行搜索
-        SearchResponse<ProductDoc> response = client.search(searchRequest, ProductDoc.class);
+        SearchResponse<ProductIndexDoc> response = client.search(searchRequest, ProductIndexDoc.class);
 
         //// 5. 结果映射 + 高亮处理
         List<ProductCardVO> voList = response.hits().hits().stream()
                 .map(hit -> {
-                    ProductDoc doc = hit.source();
+                    ProductIndexDoc doc = hit.source();
                     ProductCardVO vo = new ProductCardVO();
 
                     // 默认数据

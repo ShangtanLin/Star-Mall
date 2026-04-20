@@ -5,7 +5,7 @@ import co.elastic.clients.elasticsearch._types.query_dsl.MultiMatchQuery;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
-import com.github.shangtanlin.model.dto.es.ProductDoc;
+import com.github.shangtanlin.model.dto.es.ProductIndexDoc;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -44,18 +44,18 @@ public class RealSearch {
         );
 
         // 4. 执行搜索
-        SearchResponse<ProductDoc> response = client.search(searchRequest, ProductDoc.class);
+        SearchResponse<ProductIndexDoc> response = client.search(searchRequest, ProductIndexDoc.class);
 
         // 5. 处理结果
-        List<ProductDoc> productDocs = response.hits().hits().stream()
+        List<ProductIndexDoc> productIndexDocs = response.hits().hits().stream()
                 .map(Hit::source) // 获取文档的实际内容
                 .collect(Collectors.toList());
 
         // 打印或断言结果
         System.out.println("成功找到 " + response.hits().total().value() + " 条商品。");
-        productDocs.forEach(p -> System.out.println("ID: " + p.getId() + ", 名称: " + p.getName()));
+        productIndexDocs.forEach(p -> System.out.println("ID: " + p.getId() + ", 名称: " + p.getName()));
 
-        System.out.println(productDocs);
+        System.out.println(productIndexDocs);
 
         // JUnit 断言 (例如，确保至少找到一个结果)
         assert response.hits().total().value() > 0 : "未找到任何相关商品";

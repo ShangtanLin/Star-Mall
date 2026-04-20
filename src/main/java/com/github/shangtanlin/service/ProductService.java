@@ -7,6 +7,7 @@ import com.github.shangtanlin.model.vo.ProductCardVO;
 import com.github.shangtanlin.model.vo.ProductVO;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.List;
 
 public interface ProductService {
@@ -14,7 +15,10 @@ public interface ProductService {
 
     ProductVO getProductById(Long spuId);
 
-    PageResult<ProductCardVO> searchProduct(String keyword, Long categoryId, Integer pageNo, Integer pageSize) throws IOException;
+    PageResult<ProductCardVO> searchProduct(String keyword, Long categoryId,
+                                            BigDecimal minPrice, BigDecimal maxPrice,
+                                            Integer pageNo, Integer pageSize)
+            throws IOException;
 
     List<ProductCardVO> getHotProductsToday();
 

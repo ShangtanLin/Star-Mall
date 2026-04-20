@@ -182,6 +182,7 @@ public class CartServiceImpl implements CartService {
                         vo.setSkuId(sku.getId());
                         vo.setUserId(UserHolder.getUser().getId());
                         vo.setTitle(spu.getName() + " " + spu.getDescription());
+                        vo.setSpecJson(sku.getSpecsJson());
                         vo.setImage(spu.getMainImage());
                         vo.setShopId(spu.getShopId());
                         if (shop != null) vo.setShopName(shop.getShopName());

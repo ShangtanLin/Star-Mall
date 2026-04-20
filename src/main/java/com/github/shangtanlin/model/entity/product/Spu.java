@@ -28,6 +28,8 @@ public class Spu {
 
     private LocalDateTime updateTime;
 
+    private Integer status;
+
     //将销量字段放到spu内，便于商品列表展示
     private Integer sales;
 

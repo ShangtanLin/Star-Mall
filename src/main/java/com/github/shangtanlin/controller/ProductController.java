@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.List;
 
 @RestController
@@ -55,9 +56,11 @@ public class ProductController {
     @GetMapping("/search")
     public Result<?> searchProduct(@RequestParam(value = "keyword",required = false) String keyword,
                                    @RequestParam(value = "categoryId",required = false) Long categoryId,
+                                   @RequestParam(value = "minPrice", required = false) BigDecimal minPrice,
+                                   @RequestParam(value = "maxPrice", required = false) BigDecimal maxPrice,
                                    @RequestParam(value="pageNo",defaultValue = "1") Integer pageNo,
                                    @RequestParam(value="pageSize",defaultValue = "12") Integer pageSize) throws IOException {
-        PageResult<ProductCardVO> productPageResult = productService.searchProduct(keyword,categoryId,pageNo,pageSize);
+        PageResult<ProductCardVO> productPageResult = productService.searchProduct(keyword,categoryId,minPrice,maxPrice,pageNo,pageSize);
         log.info("前端 请求已到");
         return Result.ok(productPageResult);
     }
