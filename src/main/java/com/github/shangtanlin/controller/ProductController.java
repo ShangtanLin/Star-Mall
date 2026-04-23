@@ -61,7 +61,6 @@ public class ProductController {
                                    @RequestParam(value="pageNo",defaultValue = "1") Integer pageNo,
                                    @RequestParam(value="pageSize",defaultValue = "12") Integer pageSize) throws IOException {
         PageResult<ProductCardVO> productPageResult = productService.searchProduct(keyword,categoryId,minPrice,maxPrice,pageNo,pageSize);
-        log.info("前端 请求已到");
         return Result.ok(productPageResult);
     }
 

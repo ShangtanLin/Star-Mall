@@ -56,6 +56,5 @@ public class LoginInterceptor implements HandlerInterceptor {
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
         //从ThreadLocal中移除用户id
         UserHolder.removeUser();
-        HandlerInterceptor.super.afterCompletion(request, response, handler, ex);
     }
 }

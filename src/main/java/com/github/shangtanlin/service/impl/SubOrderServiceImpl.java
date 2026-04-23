@@ -32,6 +32,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -44,6 +45,8 @@ import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.stream.Collectors;
 
 @Service
@@ -73,6 +76,10 @@ public class SubOrderServiceImpl
 
     @Autowired
     private RabbitTemplate rabbitTemplate;
+
+    @Autowired
+    @Qualifier("orderQueryExecutor")
+    private ThreadPoolExecutor orderQueryExecutor;
 
 
     /**
@@ -294,7 +301,6 @@ public class SubOrderServiceImpl
         }
 
         // 2. 查询关联的商品明细列表 (OrderItem)
-        // 逻辑：根据 sub_order_id 外键查询所有项
         List<OrderItem> orderItems = orderItemMapper.selectList(
                 new LambdaQueryWrapper<OrderItem>()
                         .eq(OrderItem::getSubOrderId, subOrderId)
@@ -302,33 +308,25 @@ public class SubOrderServiceImpl
 
         // 3. 封装并转换成 SubOrderVO
         SubOrderVO vo = new SubOrderVO();
-
-        // 拷贝基础字段 (id, sn, userId, status, 各种金额, 地址快照等)
         BeanUtils.copyProperties(subOrder, vo);
         vo.setSubOrderId(subOrderId);
 
-
-        // 如果 VO 需要店铺名，而表里没有，需要反查一下店铺表
+        // 查询店铺信息
         Shop shop = shopMapper.selectById(vo.getShopId());
         vo.setShopName(shop.getShopName());
         vo.setShopLogo(shop.getShopLogo());
-
 
         // 转换并封装商品明细
         if (!CollectionUtils.isEmpty(orderItems)) {
             List<SubOrderVO.OrderItemVO> itemVOs = orderItems.stream().map(item -> {
                 SubOrderVO.OrderItemVO itemVO = new SubOrderVO.OrderItemVO();
                 BeanUtils.copyProperties(item, itemVO);
-
                 return itemVO;
             }).collect(Collectors.toList());
-
             vo.setItems(itemVOs);
         }
 
-
         return vo;
-
     }
 
 

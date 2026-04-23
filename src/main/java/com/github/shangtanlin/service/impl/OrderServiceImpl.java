@@ -61,6 +61,7 @@ import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -79,7 +80,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -152,6 +155,10 @@ public class OrderServiceImpl
 
     @Autowired
     private MqMessageLogMapper mqMessageLogMapper;
+
+    @Autowired
+    @Qualifier("orderQueryExecutor")
+    private ThreadPoolExecutor orderQueryExecutor;
 
 
 
@@ -721,54 +728,75 @@ public class OrderServiceImpl
 
     /**
      * 查询子订单详情
+     * 使用线程池并行查询店铺和订单项，提升查询效率
      * @param orderSn（子订单编号）
      * @param userId
      * @return
      */
     @Override
     public SubOrderVO getSubOrderDetail(String orderSn, Long userId) {
-        //1.查询出子订单
-        // 1.1 精准查询子订单（带上 userId 保证越权安全）
+        // 1. 查询子订单（必须先完成，后续查询依赖它）
         SubOrder subOrder = subOrderMapper.selectOne(new LambdaQueryWrapper<SubOrder>()
                 .eq(SubOrder::getSubOrderSn, orderSn)
                 .eq(SubOrder::getUserId, userId));
 
-        // 1.2 判空校验
+        // 2. 判空校验
         if (subOrder == null) {
             throw new BusinessException("订单不存在或无权查看");
         }
 
-        // 1.3 创建 VO 并拷贝基础属性
+        // 3. 并行查询店铺和订单项（两者无依赖关系）
+        CompletableFuture<Shop> shopFuture = CompletableFuture.supplyAsync(
+                () -> shopMapper.selectById(subOrder.getShopId()),
+                orderQueryExecutor
+        ).exceptionally(e -> {
+            log.error("查询店铺失败, shopId: {}", subOrder.getShopId(), e);
+            return null;  // 异常时返回null，不影响整体流程
+        });
+
+        CompletableFuture<List<OrderItem>> itemsFuture = CompletableFuture.supplyAsync(
+                () -> orderItemMapper.selectList(new LambdaQueryWrapper<OrderItem>()
+                        .eq(OrderItem::getSubOrderId, subOrder.getId())),
+                orderQueryExecutor
+        ).exceptionally(e -> {
+            log.error("查询订单项失败, subOrderId: {}", subOrder.getId(), e);
+            return Collections.emptyList();  // 异常时返回空列表
+        });
+
+        // 4. 等待所有查询完成
+        try {
+            CompletableFuture.allOf(shopFuture, itemsFuture).join();
+        } catch (Exception e) {
+            log.error("并行查询异常, orderSn: {}", orderSn, e);
+            // 即使并行查询失败，也继续返回基本信息
+        }
+
+        // 5. 获取结果
+        Shop shop = shopFuture.join();
+        List<OrderItem> orderItems = itemsFuture.join();
+
+        // 6. 封装 VO
         SubOrderVO vo = new SubOrderVO();
         BeanUtils.copyProperties(subOrder, vo);
+        vo.setSubOrderId(subOrder.getId());
 
-        // 1.4 手动映射不一致或特殊处理的字段
-        vo.setSubOrderId(subOrder.getId()); // 实体类 id -> VO subOrderId
-        Shop shop = shopMapper.selectById(subOrder.getShopId());
-        vo.setShopName(shop.getShopName());
-        vo.setShopLogo(shop.getShopLogo());
+        if (shop != null) {
+            vo.setShopName(shop.getShopName());
+            vo.setShopLogo(shop.getShopLogo());
+        }
 
-        // 1.5 状态文字转换 (建议调用你之前的 OrderStatusUtil)
         vo.setStatusDesc(OrderStatusUtil.getDesc(subOrder.getStatus()));
         vo.setPaymentTypeDesc(PaymentTypeEnum.getDescByCode(subOrder.getPaymentType()));
 
-        // --- 2.关联商品明细 ---
-        // 2.1 查询该子订单下的所有商品快照
-        List<OrderItem> orderItems = orderItemMapper.selectList(new LambdaQueryWrapper<OrderItem>()
-                .eq(OrderItem::getSubOrderId, subOrder.getId()));
+        if (!CollectionUtils.isEmpty(orderItems)) {
+            List<SubOrderVO.OrderItemVO> itemVOs = orderItems.stream().map(item -> {
+                SubOrderVO.OrderItemVO itemVO = new SubOrderVO.OrderItemVO();
+                BeanUtils.copyProperties(item, itemVO);
+                return itemVO;
+            }).collect(Collectors.toList());
+            vo.setItems(itemVOs);
+        }
 
-        // 2.2 转化为 VO 内部类 OrderItemVO 列表
-        // 即使 orderItems 为空，stream 也会返回空列表，不会 NPE
-        List<SubOrderVO.OrderItemVO> itemVOs = orderItems.stream().map(item -> {
-            SubOrderVO.OrderItemVO itemVO = new SubOrderVO.OrderItemVO();
-            BeanUtils.copyProperties(item, itemVO);
-            return itemVO;
-        }).collect(Collectors.toList());
-
-        // 2.3 塞入 VO
-        vo.setItems(itemVOs);
-
-        // 3. 返回结果
         return vo;
     }
 
